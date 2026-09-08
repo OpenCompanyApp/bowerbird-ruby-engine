@@ -3,3 +3,4 @@
 /fuzz/artifacts/
 /fuzz/corpus/
 /fuzz/target/
+/scripts/release/__pycache__/
