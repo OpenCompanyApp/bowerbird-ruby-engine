@@ -178,7 +178,9 @@ jobs:
       - name: Install pinned nightly Rust for libFuzzer
         uses: dtolnay/rust-toolchain@master
         with:
-          toolchain: nightly-2025-03-15
+          # cargo-fuzz 0.13.2 requires Rust 1.91 or newer. Keep this exact
+          # nightly separate from the engine's 1.87 compatibility baseline.
+          toolchain: nightly-2025-10-10
 
       - name: Install pinned cargo-fuzz outside the checkout
         env:
