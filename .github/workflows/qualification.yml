@@ -156,6 +156,9 @@ jobs:
       - name: Run deterministic corpus under AddressSanitizer
         env:
           CFLAGS: -fsanitize=address
+          # mruby's host tools compile with CFLAGS but link through its own
+          # linker command. Keep the sanitizer runtime on that link line too.
+          LDFLAGS: -fsanitize=address
           RUSTFLAGS: -Zsanitizer=address
           ASAN_OPTIONS: exitcode=86:detect_leaks=1:halt_on_error=1
         run: |
