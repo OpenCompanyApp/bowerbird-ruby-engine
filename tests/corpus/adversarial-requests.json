@@ -1,0 +1,50 @@
+{
+  "requests": [
+    {
+      "name": "value-boundaries",
+      "expect_code": 0,
+      "request": {
+        "protocol": "ruby-local-v1",
+        "profile": "opencompany-code-v1",
+        "execution_id": "corpus-value-boundaries",
+        "source": "{empty: {}, list: [], no: false, nil: nil, integer: 9007199254740993, unicode: 'e\u0301'}"
+      }
+    },
+    {
+      "name": "profile-escape-attempt",
+      "expect_code": 0,
+      "request": {
+        "protocol": "ruby-local-v1",
+        "profile": "opencompany-code-v1",
+        "execution_id": "corpus-profile-escape",
+        "source": "File.read('/etc/hosts')"
+      }
+    },
+    {
+      "name": "nul-source",
+      "expect_code": 1,
+      "request": {
+        "protocol": "ruby-local-v1",
+        "profile": "opencompany-code-v1",
+        "execution_id": "corpus-nul-source",
+        "source": "safe\u0000source"
+      }
+    },
+    {
+      "name": "foreign-authority-input",
+      "expect_code": 1,
+      "request": {
+        "protocol": "ruby-local-v1",
+        "profile": "opencompany-code-v1",
+        "execution_id": "corpus-foreign-authority",
+        "source": "42",
+        "globals": {"workspace_id": "must-not-cross-engine-boundary"}
+      }
+    }
+  ],
+  "frames": [
+    {"name": "zero-length", "hex": "00000000", "expect_code": 1},
+    {"name": "oversized-header", "hex": "ffffffff", "expect_code": 1},
+    {"name": "invalid-json", "hex": "000000037b7d5d", "expect_code": 1}
+  ]
+}

@@ -97,3 +97,68 @@ jobs:
         env:
           RUBY_ENGINE_BINARY: ${{ github.workspace }}/target/release/ruby-engine
         run: php php/tests/smoke.php
+
+      # This is an unsigned build record and dependency inventory, not a
+      # release artifact or SLSA attestation. It is retained for CI diagnosis.
+      - name: Collect Linux AMD64 provenance inputs
+        if: matrix.name == 'Linux AMD64'
+        run: |
+          mkdir -p qualification-artifacts
+          cargo metadata --locked --format-version 1 > qualification-artifacts/cargo-metadata.json
+          cp Cargo.lock engine.lock.json build_config.rb.lock LICENSE NOTICE qualification-artifacts/
+          sha256sum target/release/ruby-engine > qualification-artifacts/SHA256SUMS
+          php -r '$record = ["source_revision" => trim(shell_exec("git rev-parse HEAD")), "rustc" => trim(shell_exec("rustc --version")), "mruby_commit" => json_decode(file_get_contents("engine.lock.json"), true, 512, JSON_THROW_ON_ERROR)["commit"]]; file_put_contents("qualification-artifacts/provenance-inputs.json", json_encode($record, JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR)."\n");'
+
+      - name: Upload unsigned provenance inputs and dependency inventory
+        if: matrix.name == 'Linux AMD64'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qualification-inputs-linux-amd64
+          path: qualification-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+
+  asan-adversarial-smoke:
+    name: Linux AMD64 AddressSanitizer adversarial smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up nightly Rust with standard-library sources
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Set up Ruby and rake for the pinned mruby build
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler: none
+
+      - name: Install rake
+        run: gem install rake --no-document
+
+      - name: Provision the exact mruby source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mruby_upstream="$(python3 -c 'import json; print(json.load(open("engine.lock.json"))["upstream"])')"
+          mruby_version="$(python3 -c 'import json; print(json.load(open("engine.lock.json"))["version"])')"
+          mruby_commit="$(python3 -c 'import json; print(json.load(open("engine.lock.json"))["commit"])')"
+          git clone --depth 1 --branch "$mruby_version" "$mruby_upstream" vendor/mruby
+          git -C vendor/mruby checkout --detach "$mruby_commit"
+          test "$(git -C vendor/mruby rev-parse HEAD)" = "$mruby_commit"
+
+      # Build both Rust and the C shim with ASan. This bounded smoke targets
+      # fixed adversarial cases in the real contained guest; it does not
+      # replace continuous fuzzing or weaken the production sandbox.
+      - name: Run deterministic corpus under AddressSanitizer
+        env:
+          CFLAGS: -fsanitize=address
+          RUSTFLAGS: -Zsanitizer=address
+          ASAN_OPTIONS: exitcode=86:detect_leaks=1:halt_on_error=1
+        run: |
+          cargo test -Zbuild-std --target x86_64-unknown-linux-gnu --locked --test adversarial_corpus
+          nm -u vendor/mruby/build/guest/lib/libmruby.a | grep -q __asan
+          find target/x86_64-unknown-linux-gnu -name libruby_guest_shim.a -exec nm -u {} \; | grep -q __asan
