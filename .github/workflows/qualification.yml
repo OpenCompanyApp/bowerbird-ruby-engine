@@ -165,3 +165,43 @@ jobs:
           cargo test -Zbuild-std --target x86_64-unknown-linux-gnu --locked --test adversarial_corpus
           nm -u vendor/mruby/build/guest/lib/libmruby.a | grep -q __asan
           find target/x86_64-unknown-linux-gnu -name libruby_guest_shim.a -exec nm -u {} \; | grep -q __asan
+
+  protocol-fuzz-smoke:
+    name: Coverage-guided protocol/value fuzz smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned nightly Rust for libFuzzer
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: nightly-2025-03-15
+
+      - name: Install pinned cargo-fuzz outside the checkout
+        env:
+          CARGO_FUZZ_VERSION: 0.13.2
+          CARGO_FUZZ_ROOT: ${{ runner.temp }}/cargo-fuzz
+        run: |
+          cargo install --root "$CARGO_FUZZ_ROOT" --version "$CARGO_FUZZ_VERSION" cargo-fuzz --locked
+          echo "$CARGO_FUZZ_ROOT/bin" >> "$GITHUB_PATH"
+
+      # libFuzzer returns nonzero for a sanitizer finding or target crash; do
+      # not mask that status. The generated corpus is bounded and uploaded
+      # only for failure diagnosis, not treated as a release artifact.
+      - name: Run bounded coverage-guided frame and request fuzzing
+        working-directory: fuzz
+        run: |
+          timeout --signal=TERM 90s cargo fuzz run protocol_frame -- -max_total_time=30 -timeout=2 -rss_limit_mb=256 -max_len=1048576
+          timeout --signal=TERM 90s cargo fuzz run request_admission -- -max_total_time=30 -timeout=2 -rss_limit_mb=256 -max_len=1048576
+
+      - name: Upload failing fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ github.sha }}
+          path: fuzz/artifacts
+          if-no-files-found: ignore
+          retention-days: 14

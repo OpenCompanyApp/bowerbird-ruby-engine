@@ -1,2 +1,5 @@
 /target/
 /vendor/
+/fuzz/artifacts/
+/fuzz/corpus/
+/fuzz/target/

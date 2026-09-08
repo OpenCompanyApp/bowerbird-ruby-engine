@@ -26,7 +26,10 @@ Linux's parent-death signal or a macOS kernel process watch. These guarantees do
 not cancel an external request already dispatched by the PHP host.
 
 The focused supervision tests cover these lifetime cases and repeated startup.
-They do not replace sanitizer/fuzz, release-artifact or deployment qualification.
+CI also runs a fixed ASan corpus against the contained guest and short,
+coverage-guided fuzzing of framing and request/value admission. These bounded
+checks do not replace sustained sanitizer/fuzz, release-artifact or deployment
+qualification.
 
 ## CI evidence
 
