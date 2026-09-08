@@ -4,7 +4,15 @@ use std::io;
 /// Operator/CI probe of OS enforcement, independent of Ruby's method allowlist.
 /// Targets are fixed, non-mutating and contain no application credentials.
 pub fn probe(capability: &str) -> io::Result<bool> {
-    enter(1000, 1000)?;
+    if let Err(error) = enter(1000, 1000) {
+        // Probe mode is an operator/CI diagnostic, never protocol output.
+        // Normal guest stdout remains exclusively framed protocol data.
+        eprintln!(
+            "isolation_probe capability={capability} phase=enter outcome=error kind={:?} error={error}",
+            error.kind()
+        );
+        return Err(error);
+    }
     let denied = |error: io::Error| error.kind() == io::ErrorKind::PermissionDenied;
     Ok(match capability {
         "file" => std::fs::read("/etc/hosts").err().is_some_and(denied),
@@ -17,8 +25,29 @@ pub fn probe(capability: &str) -> io::Result<bool> {
             // as a non-success status. `/usr/bin/true` has one success result,
             // so either form reports that this fixed executable did not run
             // successfully. This is a smoke probe, not a complete exec audit.
-            Ok(status) => !status.success(),
-            Err(error) => denied(error),
+            Ok(status) if status.success() => {
+                eprintln!(
+                    "isolation_probe capability=process outcome=allowed_exec status={status}"
+                );
+                false
+            }
+            Ok(status) => {
+                eprintln!("isolation_probe capability=process outcome=denied_exit status={status}");
+                true
+            }
+            Err(error) => {
+                let is_denied = error.kind() == io::ErrorKind::PermissionDenied;
+                let outcome = if is_denied {
+                    "denied_errno"
+                } else {
+                    "error_errno"
+                };
+                eprintln!(
+                    "isolation_probe capability=process outcome={outcome} kind={:?} error={error}",
+                    error.kind()
+                );
+                is_denied
+            }
         },
         _ => false,
     })
