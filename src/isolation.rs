@@ -11,10 +11,15 @@ pub fn probe(capability: &str) -> io::Result<bool> {
         "network" => std::net::TcpStream::connect("127.0.0.1:9")
             .err()
             .is_some_and(denied),
-        "process" => std::process::Command::new("/usr/bin/true")
-            .status()
-            .err()
-            .is_some_and(denied),
+        "process" => match std::process::Command::new("/usr/bin/true").status() {
+            // Linux seccomp rejects the spawn with EPERM. macOS Seatbelt can
+            // instead create the child and deny its exec, which is observable
+            // as a non-success status. `/usr/bin/true` has one success result,
+            // so either form reports that this fixed executable did not run
+            // successfully. This is a smoke probe, not a complete exec audit.
+            Ok(status) => !status.success(),
+            Err(error) => denied(error),
+        },
         _ => false,
     })
 }
