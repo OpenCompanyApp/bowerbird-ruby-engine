@@ -4,6 +4,16 @@ use std::io;
 /// Operator/CI probe of OS enforcement, independent of Ruby's method allowlist.
 /// Targets are fixed, non-mutating and contain no application credentials.
 pub fn probe(capability: &str) -> io::Result<bool> {
+    // Verify this fixed diagnostic target before Seatbelt can intentionally
+    // hide paths. A later macOS ENOENT then represents containment, not a
+    // missing test executable on an image we never qualified.
+    let process_probe = "/usr/bin/true";
+    if capability == "process" && !std::path::Path::new(process_probe).is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            "The fixed process probe executable is absent before containment",
+        ));
+    }
     if let Err(error) = enter(1000, 1000) {
         // Probe mode is an operator/CI diagnostic, never protocol output.
         // Normal guest stdout remains exclusively framed protocol data.
@@ -19,7 +29,7 @@ pub fn probe(capability: &str) -> io::Result<bool> {
         "network" => std::net::TcpStream::connect("127.0.0.1:9")
             .err()
             .is_some_and(denied),
-        "process" => match std::process::Command::new("/usr/bin/true").status() {
+        "process" => match std::process::Command::new(process_probe).status() {
             // Linux seccomp rejects the spawn with EPERM. macOS Seatbelt can
             // instead create the child and deny its exec, which is observable
             // as a non-success status. `/usr/bin/true` has one success result,
@@ -36,7 +46,11 @@ pub fn probe(capability: &str) -> io::Result<bool> {
                 true
             }
             Err(error) => {
-                let is_denied = error.kind() == io::ErrorKind::PermissionDenied;
+                // Seatbelt can represent a denied executable lookup as ENOENT.
+                // The pre-containment check above establishes that this exact
+                // path existed before policy application.
+                let is_denied = error.kind() == io::ErrorKind::PermissionDenied
+                    || (cfg!(target_os = "macos") && error.kind() == io::ErrorKind::NotFound);
                 let outcome = if is_denied {
                     "denied_errno"
                 } else {
