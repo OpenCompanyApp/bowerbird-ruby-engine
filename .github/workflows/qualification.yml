@@ -1,0 +1,99 @@
+name: engine qualification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qualification.yml'
+      - 'Cargo.lock'
+      - 'Cargo.toml'
+      - 'build.rs'
+      - 'build_config.rb'
+      - 'engine.lock.json'
+      - 'native/**'
+      - 'php/**'
+      - 'src/**'
+      - 'tests/**'
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-qualification-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  qualification:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux AMD64
+            runner: ubuntu-24.04
+            uname: x86_64
+          # GitHub documents this public-preview label for public repositories.
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+            uname: aarch64
+          - name: macOS ARM64
+            runner: macos-14
+            uname: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify the hosted runner architecture
+        run: test "$(uname -m)" = "${{ matrix.uname }}"
+
+      # Cargo.toml declares rust-version 1.87. Pinning to that minimum makes
+      # compatibility evidence reproducible instead of depending on stable.
+      - name: Set up the minimum supported Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.87'
+          components: clippy
+
+      - name: Set up Ruby and rake for the pinned mruby build
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler: none
+
+      - name: Install rake
+        run: gem install rake --no-document
+
+      - name: Set up PHP 8.4 for adapter smoke tests
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Provision the exact mruby source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mruby_upstream="$(php -r 'echo json_decode(file_get_contents("engine.lock.json"), true, 512, JSON_THROW_ON_ERROR)["upstream"];')"
+          mruby_version="$(php -r 'echo json_decode(file_get_contents("engine.lock.json"), true, 512, JSON_THROW_ON_ERROR)["version"];')"
+          mruby_commit="$(php -r 'echo json_decode(file_get_contents("engine.lock.json"), true, 512, JSON_THROW_ON_ERROR)["commit"];')"
+          git clone --depth 1 --branch "$mruby_version" "$mruby_upstream" vendor/mruby
+          git -C vendor/mruby checkout --detach "$mruby_commit"
+          test "$(git -C vendor/mruby rev-parse HEAD)" = "$mruby_commit"
+          test -z "$(git -C vendor/mruby status --porcelain --untracked-files=no)"
+
+      - name: Lint, test, and build the bounded engine
+        env:
+          CARGO_INCREMENTAL: '0'
+        run: |
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+          cargo build --locked --release
+
+      - name: Exercise the PHP 8.4 adapter smoke scenarios
+        env:
+          RUBY_ENGINE_BINARY: ${{ github.workspace }}/target/release/ruby-engine
+        run: php php/tests/smoke.php

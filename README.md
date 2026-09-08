@@ -28,6 +28,17 @@ not cancel an external request already dispatched by the PHP host.
 The focused supervision tests cover these lifetime cases and repeated startup.
 They do not replace sanitizer/fuzz, release-artifact or deployment qualification.
 
+## CI evidence
+
+The `engine qualification` workflow builds the pinned mruby source, runs Clippy,
+the Rust test suite, and the seven-scenario PHP 8.4 smoke test on Linux AMD64,
+Linux ARM64, and macOS ARM64 GitHub-hosted runners. The Linux ARM64 label is a
+GitHub public-preview runner label. A workflow definition or a green result is
+test evidence for that source revision only; it is not a production release,
+signing attestation, or sandbox qualification. See [GitHub's hosted runner
+reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+for current runner availability.
+
 OpenCompany owns permissions, credentials, approval and effect delivery. The
 engine cannot establish those facts and never claims a killed provider call was
 rolled back. See the OpenCompany mruby migration plan for release gates.
