@@ -1,0 +1,16 @@
+FROM rust:1.92.0-bookworm AS qualification
+RUN apt-get update && apt-get install -y --no-install-recommends ruby rake && rm -rf /var/lib/apt/lists/*
+WORKDIR /engine
+COPY Cargo.toml Cargo.lock build.rs build_config.rb engine.lock.json ./
+RUN git clone --depth 1 --branch 4.0.0 https://github.com/mruby/mruby.git vendor/mruby
+COPY native ./native
+COPY src ./src
+COPY tests ./tests
+RUN cargo test --locked
+RUN cargo build --locked --release
+
+FROM php:8.4-cli-bookworm AS php-qualification
+COPY --from=qualification /engine/target/release/ruby-engine /usr/local/bin/ruby-engine
+COPY php /engine/php
+ENV RUBY_ENGINE_BINARY=/usr/local/bin/ruby-engine
+RUN php /engine/php/tests/smoke.php

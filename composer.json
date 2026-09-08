@@ -1,0 +1,10 @@
+{
+    "name": "bowerbird/ruby-engine",
+    "description": "Bounded PHP subprocess adapter for the shared isolated mruby guest",
+    "type": "library",
+    "license": "Apache-2.0",
+    "require": {"php": "^8.4"},
+    "archive": {"exclude": ["/target", "/vendor", "/.git"]},
+    "autoload": {"psr-4": {"Bowerbird\\RubyEngine\\": "php/src/"}},
+    "scripts": {"test": "php php/tests/smoke.php"}
+}

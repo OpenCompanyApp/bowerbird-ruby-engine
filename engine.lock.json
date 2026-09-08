@@ -1,0 +1,8 @@
+{
+  "upstream": "https://github.com/mruby/mruby.git",
+  "version": "4.0.0",
+  "commit": "831da26b9021de0369d17b71b5667e2941a1a32d",
+  "profile": "opencompany-code-v1",
+  "protocol": "ruby-local-v1",
+  "status": "Development candidate; not qualified for production"
+}

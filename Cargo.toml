@@ -1,0 +1,26 @@
+[package]
+name = "bowerbird-ruby-engine"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+publish = false
+description = "Isolated, bounded mruby guest and transport for independent application hosts"
+license = "Apache-2.0"
+
+[dependencies]
+libc = "=0.2.175"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.145"
+sha2 = "=0.10.9"
+
+[build-dependencies]
+cc = "=1.2.32"
+
+[[bin]]
+name = "ruby-engine"
+path = "src/main.rs"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
