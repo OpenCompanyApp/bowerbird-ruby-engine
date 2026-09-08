@@ -236,9 +236,14 @@ fn platform() -> io::Result<()> {
     }
     // The process is already loaded. No filesystem path, socket, subprocess or
     // Mach service is granted. Existing protocol pipes are the sole I/O channel.
-    let policy =
-        CString::new("(version 1)(deny default)(allow signal (target self))(allow sysctl-read)")
-            .unwrap();
+    // Deny-default alone is not sufficient evidence that current Seatbelt
+    // profiles will reject fork/exec on every macOS runner. Keep these
+    // operation-level denials explicit so the containment probe covers the
+    // policy we actually require, rather than an undocumented default.
+    let policy = CString::new(
+        "(version 1)(deny default)(deny process-fork)(deny process-exec)(allow signal (target self))(allow sysctl-read)",
+    )
+    .unwrap();
     let mut error = std::ptr::null_mut();
     let status = unsafe { sandbox_init(policy.as_ptr(), 0, &mut error) };
     if status != 0 {
