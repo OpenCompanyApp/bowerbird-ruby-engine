@@ -1,0 +1,139 @@
+name: engine release-candidate artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      candidate:
+        description: 'Human-readable RC label; this workflow never creates a tag or release.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-release-candidate-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: RC package ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-amd64
+            runner: ubuntu-24.04
+            uname: x86_64
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+            uname: aarch64
+          - name: macos-arm64
+            runner: macos-14
+            uname: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate dispatch label and runner architecture
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          test "$(uname -m)" = "${{ matrix.uname }}"
+          printf '%s' "$CANDIDATE" | grep -Eq '^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$'
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.87.0'
+          components: clippy
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4'
+          bundler: none
+      - run: gem install rake --no-document
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          coverage: none
+
+      - name: Provision the immutable mruby source pin
+        run: |
+          set -euo pipefail
+          mruby_upstream="$(php -r 'echo json_decode(file_get_contents("engine.lock.json"), true, 512, JSON_THROW_ON_ERROR)["upstream"];')"
+          mruby_version="$(php -r 'echo json_decode(file_get_contents("engine.lock.json"), true, 512, JSON_THROW_ON_ERROR)["version"];')"
+          mruby_commit="$(php -r 'echo json_decode(file_get_contents("engine.lock.json"), true, 512, JSON_THROW_ON_ERROR)["commit"];')"
+          git clone --depth 1 --branch "$mruby_version" "$mruby_upstream" vendor/mruby
+          git -C vendor/mruby checkout --detach "$mruby_commit"
+          test "$(git -C vendor/mruby rev-parse HEAD)" = "$mruby_commit"
+          test -z "$(git -C vendor/mruby status --porcelain --untracked-files=no)"
+
+      - name: Test the native engine before packaging
+        env:
+          CARGO_INCREMENTAL: '0'
+        run: |
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+          cargo build --locked --release
+          RUBY_ENGINE_BINARY="$GITHUB_WORKSPACE/target/release/ruby-engine" php php/tests/smoke.php
+
+      - name: Assemble minimal RC archives and evidence
+        env:
+          CANDIDATE: ${{ inputs.candidate }}
+        run: |
+          set -euo pipefail
+          archive="bowerbird-ruby-engine-${CANDIDATE}-${{ matrix.name }}.tar.gz"
+          package="bowerbird-ruby-engine-${CANDIDATE}-${{ matrix.name }}"
+          mkdir -p release-staging/"$package"/bin release-artifacts release-evidence
+          cp target/release/ruby-engine release-staging/"$package"/bin/ruby-engine
+          cp README.md LICENSE NOTICE engine.lock.json release-staging/"$package"/
+          tar -C release-staging -czf release-artifacts/"$archive" "$package"
+          cargo metadata --locked --format-version 1 > release-evidence/cargo-metadata.json
+          python3 scripts/release/generate_spdx_sbom.py release-evidence/cargo-metadata.json engine.lock.json release-evidence/sbom.spdx.json "https://github.com/${GITHUB_REPOSITORY}/rc/${GITHUB_SHA}/${{ matrix.name }}"
+          cp Cargo.lock engine.lock.json LICENSE NOTICE release-evidence/
+          php -r '$record = ["candidate" => getenv("CANDIDATE"), "source_revision" => trim(shell_exec("git rev-parse HEAD")), "rustc" => trim(shell_exec("rustc --version")), "mruby" => json_decode(file_get_contents("engine.lock.json"), true, 512, JSON_THROW_ON_ERROR), "platform" => "${{ matrix.name }}"]; file_put_contents("release-evidence/provenance.json", json_encode($record, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR)."\n");'
+          shasum -a 256 release-artifacts/"$archive" > release-evidence/SHA256SUMS
+          if [ "${{ matrix.name }}" = linux-amd64 ]; then
+            composer_archive="bowerbird-ruby-engine-${CANDIDATE}-php-adapter.tar.gz"
+            composer_package="bowerbird-ruby-engine-${CANDIDATE}-php-adapter"
+            mkdir -p release-staging/"$composer_package"/php
+            cp composer.json README.md LICENSE NOTICE release-staging/"$composer_package"/
+            cp -R php/src release-staging/"$composer_package"/php/
+            tar -C release-staging -czf release-artifacts/"$composer_archive" "$composer_package"
+            shasum -a 256 release-artifacts/"$composer_archive" >> release-evidence/SHA256SUMS
+          fi
+
+      # This requests GitHub build provenance for every uploaded archive. It
+      # does not create a tag, release, maintainer signature, or qualification.
+      - name: Attest RC archive build provenance
+        id: provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: release-artifacts/*.tar.gz
+
+      # With sbom-path this action emits an SBOM predicate, distinct from the
+      # provenance step above. The PHP adapter has no native dependency graph.
+      - name: Attest native archive SBOM
+        id: sbom
+        uses: actions/attest@v4
+        with:
+          subject-path: release-artifacts/bowerbird-ruby-engine-${{ inputs.candidate }}-${{ matrix.name }}.tar.gz
+          sbom-path: release-evidence/sbom.spdx.json
+
+      - name: Retain verification bundles with the candidate
+        run: |
+          cp "${{ steps.provenance.outputs.bundle-path }}" release-evidence/provenance.sigstore.json
+          cp "${{ steps.sbom.outputs.bundle-path }}" release-evidence/sbom.sigstore.json
+
+      - name: Upload unsigned RC archives and review evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-rc-${{ inputs.candidate }}-${{ matrix.name }}-${{ github.sha }}
+          path: |
+            release-artifacts/
+            release-evidence/
+          if-no-files-found: error
+          retention-days: 30

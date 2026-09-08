@@ -4,7 +4,24 @@
     "type": "library",
     "license": "Apache-2.0",
     "require": {"php": "^8.4"},
-    "archive": {"exclude": ["/target", "/vendor", "/.git"]},
+    "archive": {
+        "exclude": [
+            "/.git",
+            "/.github",
+            "/Cargo.lock",
+            "/Cargo.toml",
+            "/build.rs",
+            "/build_config.rb",
+            "/engine.lock.json",
+            "/fuzz",
+            "/native",
+            "/scripts",
+            "/src",
+            "/target",
+            "/tests",
+            "/vendor"
+        ]
+    },
     "autoload": {"psr-4": {"Bowerbird\\RubyEngine\\": "php/src/"}},
     "scripts": {"test": "php php/tests/smoke.php"}
 }

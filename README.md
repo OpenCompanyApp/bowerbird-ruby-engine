@@ -42,6 +42,24 @@ signing attestation, or sandbox qualification. See [GitHub's hosted runner
 reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 for current runner availability.
 
+## Release-candidate artifacts
+
+The manually dispatched `engine release-candidate artifacts` workflow tests each
+native target before uploading review-only artifacts; it never creates a tag or
+GitHub Release. Download the archive and its matching `SHA256SUMS`, then verify
+the exact archive before configuring its absolute binary path in the PHP client:
+
+```sh
+shasum -a 256 bowerbird-ruby-engine-<candidate>-<platform>.tar.gz
+grep ' bowerbird-ruby-engine-<candidate>-<platform>.tar.gz$' SHA256SUMS
+```
+
+The separate PHP adapter archive contains only `composer.json`, `php/src`, and
+notices: it intentionally excludes Rust build output and the mutable mruby
+checkout. GitHub provenance/SBOM attestations exist only after a successful RC
+job and can be independently checked with `gh attestation verify`; they are not
+maintainer signatures or a production qualification statement.
+
 OpenCompany owns permissions, credentials, approval and effect delivery. The
 engine cannot establish those facts and never claims a killed provider call was
 rolled back. See the OpenCompany mruby migration plan for release gates.
