@@ -9,7 +9,7 @@ COPY tests ./tests
 RUN cargo test --locked
 RUN cargo build --locked --release
 
-FROM php:8.4-cli-bookworm AS php-qualification
+FROM php:8.4.27-cli-bookworm AS php-qualification
 COPY --from=qualification /engine/target/release/ruby-engine /usr/local/bin/ruby-engine
 COPY php /engine/php
 ENV RUBY_ENGINE_BINARY=/usr/local/bin/ruby-engine
